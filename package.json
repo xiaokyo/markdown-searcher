@@ -1,19 +1,21 @@
 {
   "$schema": "https://www.raycast.com/schemas/extension.json",
   "name": "markdown-search",
-  "title": "Markdown Search",
-  "description": "Markdown Search With Raycast",
+  "title": "Markdown Content Search",
+  "description": "Markdown Content Search With Raycast",
   "icon": "command-icon-custom.png",
   "author": "xiaokyo",
   "categories": [
-    "Other"
+    "Other",
+    "Documentation",
+    "Productivity"
   ],
   "license": "MIT",
   "commands": [
     {
       "name": "index",
-      "title": "Markdown Search",
-      "subtitle": "Markdown Search With Raycast",
+      "title": "Markdown Content Search",
+      "subtitle": "Markdown Content Search With Raycast",
       "description": "Search Local's Markdown File Content and Show Content",
       "mode": "view",
       "arguments": [
@@ -29,11 +31,19 @@
   "preferences": [
     {
       "name": "MarkdownFolder",
-      "description": "markdown folder path, multiple paths are separated by commas",
+      "description": "Markdown folder path, multiple paths are separated by commas",
       "type": "textfield",
       "required": true,
-      "placeholder": "markdown folder path, multiple paths are separated by commas",
-      "title": "MarkdownFolders"
+      "placeholder": "Markdown folder path, multiple paths are separated by commas",
+      "title": "Markdown Folders"
+    },
+    {
+      "name": "excludeFileRegexp",
+      "description": "Exclude file or path regexp, multiple files are separated by commas",
+      "type": "textfield",
+      "required": false,
+      "placeholder": "Exclude file or path regexp, multiple files are separated by commas",
+      "title": "Exclude File or Path Regexp"
     }
   ],
   "dependencies": {

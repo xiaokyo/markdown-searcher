@@ -1,4 +1,4 @@
-import { Action, ActionPanel, LaunchProps, List, getPreferenceValues } from "@raycast/api";
+import { Action, ActionPanel, LaunchProps, List, Toast, getPreferenceValues, showToast } from "@raycast/api";
 import fs from "fs";
 import { useEffect, useState } from "react";
 
@@ -7,7 +7,7 @@ function getContent(filename: string) {
   return content;
 }
 
-function readWithFolder(rootPath: string) {
+function readWithFolder(rootPath: string, excludeRegexps: RegExp[]) {
   const result: string[] = [];
 
   function getMd(path: string) {
@@ -18,7 +18,8 @@ function readWithFolder(rootPath: string) {
       const stats = fs.statSync(path + file);
       const isDir = stats.isDirectory() && !file.startsWith(".");
       const isMd = file.endsWith(".md");
-      if (isMd) {
+      const isExclude = excludeRegexps.some((regexp) => regexp.test(path + file));
+      if (isMd && !isExclude) {
         result.push(path + file);
       }
 
@@ -42,10 +43,14 @@ interface IFile {
   title: string;
   subTitle: string;
   content: string;
+  pathname: string;
 }
 
 interface Preferences {
+  /** 文件目录集合 */
   MarkdownFolder: string;
+  /** 排除文件正则 */
+  excludeFileRegexp?: string;
 }
 
 export default function Command(props: LaunchProps<{ arguments: IProps }>) {
@@ -55,43 +60,57 @@ export default function Command(props: LaunchProps<{ arguments: IProps }>) {
   const [showDetail, setShowDetail] = useState(false);
 
   useEffect(() => {
-    const foldersText = preferences.MarkdownFolder;
-    const folders = foldersText.split(",");
-    const files: string[] = [];
-    folders.map((folder) => {
-      files.push(...readWithFolder(folder.trim()));
-    });
-    const findList: IFile[] = [];
-    [...files].forEach((filename) => {
-      const _content = getContent(filename);
-      // 获取内容的第一行
-      const _title = _content.split("\n")[0].replace(/#/g, "").trim();
-      const findIndex = _content.indexOf(query);
-      const match = findIndex > -1 || _title.indexOf(query) > -1 || filename.indexOf(query) > -1;
-      if (match) {
-        let name = filename;
-        folders.forEach((folder) => {
-          name = name.replace(folder, "");
-        });
-        name = name.replace(".md", "").trim();
+    try {
+      const { MarkdownFolder: foldersText, excludeFileRegexp = "" } = preferences;
+      const folders = foldersText.split(",");
 
-        const nameArr = name.split("/");
-        name = nameArr[nameArr.length - 1];
+      const files: string[] = [];
+      folders.map((folder) => {
+        files.push(
+          ...readWithFolder(
+            folder.trim(),
+            excludeFileRegexp
+              .split(",")
+              .filter(Boolean)
+              .map((regexp: string) => new RegExp(regexp.trim()))
+          )
+        );
+      });
+      const findList: IFile[] = [];
+      [...files].forEach((filename) => {
+        const _content = getContent(filename);
+        // 获取内容的第一行
+        const _title = _content.split("\n")[0].replace(/#/g, "").trim();
+        const findIndex = _content.indexOf(query);
+        const match = findIndex > -1 || _title.indexOf(query) > -1 || filename.indexOf(query) > -1;
+        if (match) {
+          let name = filename;
+          folders.forEach((folder) => {
+            name = name.replace(folder, "");
+          });
+          name = name.replace(".md", "").trim();
 
-        const _subTitle = _content
-          .replace(/\n/g, "")
-          .trim()
-          .substring(findIndex > -1 ? (findIndex - 20 > -1 ? findIndex - 20 : 0) : 0, 200);
+          const nameArr = name.split("/");
+          name = nameArr[nameArr.length - 1];
 
-        findList.push({
-          title: _title,
-          subTitle: _subTitle,
-          content: _content,
-          filename: name,
-        });
-      }
-    });
-    setList([...findList]);
+          const _subTitle = _content
+            .replace(/\n/g, "")
+            .trim()
+            .substring(findIndex > -1 ? (findIndex - 20 > -1 ? findIndex - 20 : 0) : 0, 200);
+
+          findList.push({
+            title: _title,
+            subTitle: _subTitle,
+            content: _content,
+            filename: name,
+            pathname: filename,
+          });
+        }
+      });
+      setList([...findList]);
+    } catch (err: any) {
+      showToast({ style: Toast.Style.Failure, title: "Something went wrong", message: err.message });
+    }
   }, []);
 
   return (
@@ -112,12 +131,20 @@ export default function Command(props: LaunchProps<{ arguments: IProps }>) {
         return (
           <List.Item
             key={item.title}
+            icon={{ source: "command-icon-custom.png" }}
             title={item.filename + " -- " + item.title}
             subtitle={item.subTitle}
             {...props}
             actions={
               <ActionPanel>
                 <Action title={item.title} onAction={() => setShowDetail(!showDetail)} />
+                <Action.Open title={`Open File`} target={item.pathname} />
+                <Action.Open title={`Open File With Typora`} target={item.pathname} application={"Typora"} />
+                <Action.Open
+                  title={`Open File Visual Studio Code`}
+                  target={item.pathname}
+                  application={"Visual Studio Code"}
+                />
               </ActionPanel>
             }
           />
