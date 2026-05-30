@@ -137,13 +137,12 @@ export default function Command(props: LaunchProps<{ arguments: IProps }>) {
             {...props}
             actions={
               <ActionPanel>
-                <Action title={item.title} onAction={() => setShowDetail(!showDetail)} />
+                <Action title={"View Detail"} onAction={() => setShowDetail(!showDetail)} />
                 <Action.Open title={`Open File`} target={item.pathname} />
-                <Action.Open title={`Open File With Typora`} target={item.pathname} application={"Typora"} />
                 <Action.Open
                   title={`Open File Visual Studio Code`}
                   target={item.pathname}
-                  application={"Visual Studio Code"}
+                  application={"com.microsoft.VSCode"}
                 />
               </ActionPanel>
             }
