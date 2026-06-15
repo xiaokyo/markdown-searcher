@@ -43,7 +43,40 @@ interface IFile {
   title: string;
   subTitle: string;
   content: string;
+  detailMarkdown: string;
   pathname: string;
+}
+
+/** 转义正则特殊字符 */
+function escapeRegExp(str: string) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** 列表副标题：用 「」 包裹搜索词 */
+function wrapKeyword(text: string, query: string) {
+  if (!query) return text;
+  return text.replace(new RegExp(escapeRegExp(query), "gi"), (m) => `「${m}」`);
+}
+
+/** 详情 markdown：匹配位置上下文置顶 + 分割线 + 全文原文 */
+function buildDetailMarkdown(content: string, query: string) {
+  if (!query) return content;
+
+  const idx = content.toLowerCase().indexOf(query.toLowerCase());
+  if (idx === -1) return content;
+
+  const start = Math.max(0, idx - 80);
+  const end = Math.min(content.length, idx + query.length + 200);
+  const excerpt = `${start > 0 ? "…" : ""}${content.substring(start, end)}${end < content.length ? "…" : ""}`;
+
+  return [
+    "### MATCH POINT",
+    excerpt.replace(/\n/g, "\n> ").replace(/^/, "> "),
+    "",
+    "-------------------------------------------------",
+    "",
+    content,
+  ].join("\n");
 }
 
 interface Preferences {
@@ -100,8 +133,9 @@ export default function Command(props: LaunchProps<{ arguments: IProps }>) {
 
           findList.push({
             title: _title,
-            subTitle: _subTitle,
+            subTitle: wrapKeyword(_subTitle, query),
             content: _content,
+            detailMarkdown: buildDetailMarkdown(_content, query),
             filename: name,
             pathname: filename,
           });
@@ -118,7 +152,7 @@ export default function Command(props: LaunchProps<{ arguments: IProps }>) {
       {list?.map((item) => {
         const props: Partial<List.Item.Props> = showDetail
           ? {
-              detail: <List.Item.Detail markdown={`${item.content}`} />,
+              detail: <List.Item.Detail markdown={item.detailMarkdown} />,
             }
           : {
               accessories: [
@@ -130,7 +164,7 @@ export default function Command(props: LaunchProps<{ arguments: IProps }>) {
 
         return (
           <List.Item
-            key={item.title}
+            key={item.pathname}
             icon={{ source: "command-icon-custom.png" }}
             title={item.filename + " -- " + item.title}
             subtitle={item.subTitle}
