@@ -1,4 +1,13 @@
-import { Action, ActionPanel, LaunchProps, List, Toast, getPreferenceValues, showToast } from "@raycast/api";
+import {
+  Action,
+  ActionPanel,
+  LaunchProps,
+  List,
+  Toast,
+  getApplications,
+  getPreferenceValues,
+  showToast,
+} from "@raycast/api";
 import fs from "fs";
 import path from "path";
 import { useEffect, useState } from "react";
@@ -62,6 +71,8 @@ async function readWithFolder(
 /** 结果数上限，避免宽泛查询在大目录下产生海量结果拖垮渲染 */
 const MAX_RESULTS = 200;
 
+const VSCODE_BUNDLE_ID = "com.microsoft.VSCode";
+
 interface IProps {
   query: string;
 }
@@ -94,12 +105,14 @@ function neutralizeFences(text: string) {
 function buildDetailMarkdown(content: string, query: string) {
   if (!query) return content;
 
-  const idx = content.toLowerCase().indexOf(query.toLowerCase());
+  // 摘录在换行归一化文本上定位，与列表匹配/副标题保持一致（覆盖跨硬换行短语）
+  const normalized = content.replace(/\r\n?|\n/g, " ");
+  const idx = normalized.toLowerCase().indexOf(query.toLowerCase());
   if (idx === -1) return content;
 
   const start = Math.max(0, idx - 80);
-  const end = Math.min(content.length, idx + query.length + 200);
-  const raw = `${start > 0 ? "…" : ""}${content.substring(start, end)}${end < content.length ? "…" : ""}`;
+  const end = Math.min(normalized.length, idx + query.length + 200);
+  const raw = `${start > 0 ? "…" : ""}${normalized.substring(start, end)}${end < normalized.length ? "…" : ""}`;
   const excerpt = neutralizeFences(raw);
 
   return [
@@ -125,6 +138,22 @@ export default function Command(props: LaunchProps<{ arguments: IProps }>) {
   const [list, setList] = useState<IFile[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showDetail, setShowDetail] = useState(false);
+  const [hasVSCode, setHasVSCode] = useState(false);
+
+  // 检测是否安装 VSCode，未安装则不渲染对应 action，避免打开时报错
+  useEffect(() => {
+    let cancelled = false;
+    getApplications()
+      .then((apps) => {
+        if (!cancelled) setHasVSCode(apps.some((a) => a.bundleId === VSCODE_BUNDLE_ID));
+      })
+      .catch(() => {
+        // 检测失败按未安装处理
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -160,11 +189,23 @@ export default function Command(props: LaunchProps<{ arguments: IProps }>) {
         }
         const files = new Set(paths);
 
-        const q = query.toLowerCase();
+        // 去除查询词首尾空格，避免尾随空格导致匹配落空
+        const trimmedQuery = query.trim();
+        const q = trimmedQuery.toLowerCase();
+        // 空查询（纯空格）直接返回空结果，避免匹配到所有文件
+        if (!q) {
+          if (cancelled) return;
+          setList([]);
+          return;
+        }
         const findList: IFile[] = [];
+        let truncated = false;
         for (const filename of files) {
           if (cancelled) return;
-          if (findList.length >= MAX_RESULTS) break;
+          if (findList.length >= MAX_RESULTS) {
+            truncated = true;
+            break;
+          }
 
           let _content: string;
           try {
@@ -173,30 +214,39 @@ export default function Command(props: LaunchProps<{ arguments: IProps }>) {
             // 单个文件读取失败不影响整体
             continue;
           }
+          // 去除 UTF-8 BOM，避免其破坏标题标记去除等前缀匹配
+          if (_content.charCodeAt(0) === 0xfeff) _content = _content.slice(1);
           // 首个非空行作为标题，仅去除行首的标题标记
           const _title = (_content.split("\n").find((l) => l.trim()) ?? "").replace(/^#+\s*/, "").trim();
-          const findIndex = _content.toLowerCase().indexOf(q);
-          const match = findIndex > -1 || _title.toLowerCase().indexOf(q) > -1 || filename.toLowerCase().indexOf(q) > -1;
+          // 统一换行为空格后再匹配，避免跨硬换行的短语漏匹配
+          const stripped = _content.replace(/\r\n?|\n/g, " ");
+          const strippedIdx = stripped.toLowerCase().indexOf(q);
+          const match = strippedIdx > -1 || _title.toLowerCase().indexOf(q) > -1 || filename.toLowerCase().indexOf(q) > -1;
           if (!match) continue;
 
           const name = path.basename(filename).replace(/\.(md|markdown)$/i, "").trim();
 
           // 以匹配点为中心取 200 字窗口
-          const stripped = _content.replace(/\n/g, " ");
-          const strippedIdx = stripped.toLowerCase().indexOf(q);
           const subStart = strippedIdx > -1 ? Math.max(0, strippedIdx - 20) : 0;
           const _subTitle = stripped.substring(subStart, subStart + 200).trim();
 
           findList.push({
             title: _title,
-            subTitle: wrapKeyword(_subTitle, query),
-            detailMarkdown: buildDetailMarkdown(_content, query),
+            subTitle: wrapKeyword(_subTitle, trimmedQuery),
+            detailMarkdown: buildDetailMarkdown(_content, trimmedQuery),
             filename: name,
             pathname: filename,
           });
         }
         if (cancelled) return;
         setList(findList);
+        if (truncated) {
+          showToast({
+            style: Toast.Style.Success,
+            title: `Showing first ${MAX_RESULTS} matches`,
+            message: "Refine your query to narrow results",
+          });
+        }
       } catch (err) {
         if (cancelled) return;
         showToast({
@@ -242,11 +292,13 @@ export default function Command(props: LaunchProps<{ arguments: IProps }>) {
               <ActionPanel>
                 <Action title={"View Detail"} onAction={() => setShowDetail(!showDetail)} />
                 <Action.Open title={`Open File`} target={item.pathname} />
-                <Action.Open
-                  title={`Open File Visual Studio Code`}
-                  target={item.pathname}
-                  application={"com.microsoft.VSCode"}
-                />
+                {hasVSCode && (
+                  <Action.Open
+                    title={`Open File Visual Studio Code`}
+                    target={item.pathname}
+                    application={VSCODE_BUNDLE_ID}
+                  />
+                )}
               </ActionPanel>
             }
           />
